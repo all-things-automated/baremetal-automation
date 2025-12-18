@@ -1,0 +1,357 @@
+---
+# Process single discovery artifact and register in NetBox
+
+- name: Load artifact data
+  ansible.builtin.include_vars:
+    file: "{{ artifact_path }}"
+    name: artifact_data
+  changed_when: false
+
+- name: Validate artifact structure
+  ansible.builtin.assert:
+    that:
+      - artifact_data.physical_identity is defined
+      - artifact_data.physical_identity.bmc_ip is defined
+      - artifact_data.physical_identity.bmc_name is defined
+      - artifact_data.system_information is defined
+      - artifact_data.system_information | length > 0
+      - artifact_data.network_interfaces is defined
+    fail_msg: "Invalid artifact structure in {{ artifact_path | basename }}"
+    quiet: true
+  changed_when: false
+
+- name: Extract artifact metadata
+  ansible.builtin.set_fact:
+    physical_id: "{{ artifact_data.physical_identity }}"
+    system_info: "{{ artifact_data.system_information[0] }}"
+    device_name: "{{ artifact_data.physical_identity.bmc_name }}"
+    artifact_lifecycle_state: "{{ artifact_data.physical_identity.lifecycle_state | default('discovered') }}"
+  changed_when: false
+
+- name: Extract BMC name components
+  ansible.builtin.set_fact:
+    bmc_name_parts: "{{ artifact_data.physical_identity.bmc_name.split('-') }}"
+  changed_when: false
+
+- name: Extract site from BMC name prefix
+  ansible.builtin.set_fact:
+    device_site: "{{ bmc_name_parts[0] | upper }}"
+  changed_when: false
+
+- name: Validate site code
+  ansible.builtin.assert:
+    that:
+      - device_site in ['US1', 'US2', 'US3', 'US4', 'DV']
+    fail_msg: "Invalid site code '{{ device_site }}' extracted from BMC name. Must be one of: US1, US2, US3, US4, DV"
+    quiet: true
+  changed_when: false
+
+- name: Build dynamic site tag configuration
+  ansible.builtin.set_fact:
+    site_tag_config:
+      name: "{{ device_site }}"
+      slug: "{{ device_site | lower }}"
+      color: "{{ nb_tags.site.color }}"
+      description: "{{ nb_tags.site.description_template | replace('SITE_CODE', device_site) }}"
+  changed_when: false
+  when: "'site' in nb_apply_tags"
+
+- name: Extract BMC FQDN components
+  ansible.builtin.set_fact:
+    bmc_fqdn_parts: "{{ physical_id.bmc_fqdn.split('.')[0].split('-') }}"
+  changed_when: false
+
+- name: Detect BMC type from FQDN suffix
+  ansible.builtin.set_fact:
+    bmc_type_detected: "{{ bmc_fqdn_parts[-1] if bmc_fqdn_parts[-1] in ['idrac', 'ilo'] else 'mgmt' }}"
+    bmc_interface_name: "{{ bmc_fqdn_parts[-1] | upper if bmc_fqdn_parts[-1] in ['idrac', 'ilo'] else nb_bmc_interface_name }}"
+  changed_when: false
+
+- name: Ensure NetBox site exists
+  netbox.netbox.netbox_site:
+    netbox_url: "{{ nb_url }}"
+    netbox_token: "{{ nb_token }}"
+    validate_certs: "{{ nb_validate_certs }}"
+    data:
+      name: "{{ device_site }}"
+      slug: "{{ device_site | lower }}"
+    state: present
+  when: nb_auto_create_refs
+  register: nb_site_result
+
+- name: Ensure NetBox manufacturer exists
+  netbox.netbox.netbox_manufacturer:
+    netbox_url: "{{ nb_url }}"
+    netbox_token: "{{ nb_token }}"
+    validate_certs: "{{ nb_validate_certs }}"
+    data:
+      name: "{{ system_info.manufacturer }}"
+      slug: "{{ system_info.manufacturer | lower | regex_replace('[^a-z0-9-]', '-') }}"
+    state: present
+  when: nb_auto_create_refs
+
+- name: Ensure NetBox device type exists
+  netbox.netbox.netbox_device_type:
+    netbox_url: "{{ nb_url }}"
+    netbox_token: "{{ nb_token }}"
+    validate_certs: "{{ nb_validate_certs }}"
+    data:
+      model: "{{ system_info.model }}"
+      manufacturer: "{{ system_info.manufacturer }}"
+      slug: "{{ system_info.model | lower | regex_replace('[^a-z0-9-]', '-') }}"
+      part_number: "{{ system_info.part_number }}"
+    state: present
+  when: nb_auto_create_refs
+
+- name: Ensure NetBox device role exists
+  netbox.netbox.netbox_device_role:
+    netbox_url: "{{ nb_url }}"
+    netbox_token: "{{ nb_token }}"
+    validate_certs: "{{ nb_validate_certs }}"
+    data:
+      name: "{{ nb_default_device_role }}"
+      slug: "{{ nb_default_device_role | lower | regex_replace('[^a-z0-9-]', '-') }}"
+      color: "9e9e9e"
+    state: present
+  when: nb_auto_create_refs and nb_default_device_role | length > 0
+
+- name: Ensure NetBox rack exists
+  netbox.netbox.netbox_rack:
+    netbox_url: "{{ nb_url }}"
+    netbox_token: "{{ nb_token }}"
+    validate_certs: "{{ nb_validate_certs }}"
+    data:
+      name: "Cabinet {{ physical_id.cabinet_id }}"
+      site: "{{ device_site }}"
+    state: present
+  when: nb_auto_create_refs and physical_id.cabinet_id | length > 0
+
+- name: Ensure dynamic site tag exists in NetBox
+  netbox.netbox.netbox_tag:
+    netbox_url: "{{ nb_url }}"
+    netbox_token: "{{ nb_token }}"
+    validate_certs: "{{ nb_validate_certs }}"
+    data:
+      name: "{{ site_tag_config.name }}"
+      slug: "{{ site_tag_config.slug }}"
+      color: "{{ site_tag_config.color }}"
+      description: "{{ site_tag_config.description }}"
+    state: present
+  when:
+    - nb_auto_create_refs
+    - "'site' in nb_apply_tags"
+
+- name: Ensure tags exist in NetBox
+  netbox.netbox.netbox_tag:
+    netbox_url: "{{ nb_url }}"
+    netbox_token: "{{ nb_token }}"
+    validate_certs: "{{ nb_validate_certs }}"
+    data:
+      name: "{{ tag_config.value.name }}"
+      slug: "{{ tag_config.value.slug }}"
+      color: "{{ tag_config.value.color }}"
+      description: "{{ tag_config.value.description }}"
+    state: present
+  loop: "{{ nb_tags | dict2items | rejectattr('key', 'equalto', 'site') | list }}"
+  loop_control:
+    loop_var: tag_config
+    label: "{{ tag_config.value.name }}"
+  when:
+    - nb_auto_create_refs
+    - tag_config.key in nb_apply_tags
+
+- name: Query existing device from NetBox
+  ansible.builtin.uri:
+    url: "{{ nb_url }}/api/dcim/devices/?name={{ device_name }}"
+    method: GET
+    headers:
+      Authorization: "Token {{ nb_token }}"
+      Content-Type: "application/json"
+    validate_certs: "{{ nb_validate_certs }}"
+    status_code: 200
+  register: nb_device_query
+  changed_when: false
+
+- name: Extract lifecycle tag slugs from device
+  ansible.builtin.set_fact:
+    current_lifecycle_tag_slugs: >
+      {{
+        (nb_device_query.json.results[0].tags | default([]) | selectattr('slug', 'match', '^(discovered|commissioned|deployed|repurpose-ready)$') | map(attribute='slug') | list)
+        if nb_device_query.json.count > 0
+        else []
+      }}
+    device_exists: "{{ nb_device_query.json.count > 0 }}"
+  changed_when: false
+
+- name: Calculate lifecycle tag application decision
+  ansible.builtin.set_fact:
+    should_apply_lifecycle: >
+      {{
+        nb_lifecycle_force_overwrite or (current_lifecycle_tag_slugs | length == 0)
+      }}
+  changed_when: false
+
+- name: Build device tag slugs list for NetBox
+  ansible.builtin.set_fact:
+    device_tags: >
+      {{
+        (
+          ([nb_tags.lifecycle.slug] if ('lifecycle' in nb_apply_tags and should_apply_lifecycle) else current_lifecycle_tag_slugs) +
+          (nb_tags | dict2items | selectattr('key', 'in', nb_apply_tags) | rejectattr('key', 'in', ['lifecycle', 'site']) | map(attribute='value.slug') | list) +
+          ([site_tag_config.slug] if 'site' in nb_apply_tags else [])
+        ) | unique
+      }}
+  changed_when: false
+
+- name: Create or update device in NetBox
+  netbox.netbox.netbox_device:
+    netbox_url: "{{ nb_url }}"
+    netbox_token: "{{ nb_token }}"
+    validate_certs: "{{ nb_validate_certs }}"
+    data:
+      name: "{{ device_name }}"
+      device_type: "{{ system_info.model }}"
+      device_role: "{{ nb_default_device_role }}"
+      site: "{{ device_site }}"
+      serial: "{{ system_info.serial_number }}"
+      asset_tag: "{{ system_info.asset_tag if system_info.asset_tag else omit }}"
+      rack: "{{ 'Cabinet ' + physical_id.cabinet_id if physical_id.cabinet_id | length > 0 else omit }}"
+      position: "{{ physical_id.rack_unit_from if physical_id.rack_unit_from | length > 0 else omit }}"
+      face: "front"
+      status: "active"
+      tags: "{{ device_tags if device_tags | length > 0 else omit }}"
+    state: present
+  register: nb_device_result
+
+- name: Track registered device for summary
+  ansible.builtin.set_fact:
+    registered_devices: "{{ registered_devices + [physical_id.bmc_fqdn] }}"
+    registered_racks: >-
+      {{
+        registered_racks | combine({
+          ('Cabinet ' + physical_id.cabinet_id): (registered_racks.get('Cabinet ' + physical_id.cabinet_id, []) + [physical_id.bmc_fqdn])
+        })
+        if physical_id.cabinet_id | length > 0
+        else registered_racks
+      }}
+  changed_when: false
+
+- name: Create BMC management interface
+  netbox.netbox.netbox_device_interface:
+    netbox_url: "{{ nb_url }}"
+    netbox_token: "{{ nb_token }}"
+    validate_certs: "{{ nb_validate_certs }}"
+    data:
+      device: "{{ device_name }}"
+      name: "{{ bmc_interface_name }}"
+      type: "1000base-t"
+      enabled: true
+      mgmt_only: true
+      description: "{{ bmc_type_detected | upper }} Management Interface"
+    state: present
+  when: nb_create_bmc_interface
+  register: nb_bmc_interface_result
+
+- name: Create BMC IP address
+  netbox.netbox.netbox_ip_address:
+    netbox_url: "{{ nb_url }}"
+    netbox_token: "{{ nb_token }}"
+    validate_certs: "{{ nb_validate_certs }}"
+    data:
+      address: "{{ physical_id.bmc_ip }}/22"
+      status: "active"
+      dns_name: "{{ physical_id.bmc_fqdn }}"
+      assigned_object:
+        device: "{{ device_name }}"
+        name: "{{ bmc_interface_name }}"
+    state: present
+  when: nb_create_bmc_interface
+  register: nb_bmc_ip_result
+
+- name: Create BMC HTTPS service entry
+  netbox.netbox.netbox_service:
+    netbox_url: "{{ nb_url }}"
+    netbox_token: "{{ nb_token }}"
+    validate_certs: "{{ nb_validate_certs }}"
+    data:
+      device: "{{ device_name }}"
+      name: "{{ bmc_type_detected | upper }} {{ nb_bmc_service_name }}"
+      protocol: "{{ nb_bmc_service_protocol }}"
+      ports: "{{ nb_bmc_service_ports }}"
+      ipaddresses:
+        - "{{ physical_id.bmc_ip }}/22"
+      description: "{{ bmc_type_detected | upper }} {{ nb_bmc_service_name }} Management Interface"
+    state: present
+  when: nb_create_bmc_interface
+  register: nb_bmc_service_result
+
+- name: Create network interfaces in NetBox
+  netbox.netbox.netbox_device_interface:
+    netbox_url: "{{ nb_url }}"
+    netbox_token: "{{ nb_token }}"
+    validate_certs: "{{ nb_validate_certs }}"
+    data:
+      device: "{{ device_name }}"
+      name: "{{ item.id }}"
+      type: "{{ '25gbase-x-sfp28' if item.speed_mbps == 25000 else '1000base-t' }}"
+      enabled: "{{ item.link_status == 'LinkUp' }}"
+      mac_address: "{{ item.mac_address }}"
+      description: "{{ item.description }}"
+    state: present
+  loop: "{{ artifact_data.network_interfaces }}"
+  loop_control:
+    label: "{{ item.id }}"
+
+- name: Collect unique storage component manufacturers
+  ansible.builtin.set_fact:
+    storage_manufacturers: "{{ (artifact_data.storage_controllers | map(attribute='manufacturer') | list) + (artifact_data.storage_drives | map(attribute='manufacturer') | list) | unique }}"
+  changed_when: false
+
+- name: Ensure storage component manufacturers exist in NetBox
+  netbox.netbox.netbox_manufacturer:
+    netbox_url: "{{ nb_url }}"
+    netbox_token: "{{ nb_token }}"
+    validate_certs: "{{ nb_validate_certs }}"
+    data:
+      name: "{{ item }}"
+      slug: "{{ item | lower | regex_replace('[^a-z0-9-]', '-') }}"
+    state: present
+  loop: "{{ storage_manufacturers }}"
+  loop_control:
+    label: "{{ item }}"
+  when: nb_auto_create_refs and nb_create_storage_inventory
+
+- name: Create inventory items for storage controllers
+  netbox.netbox.netbox_inventory_item:
+    netbox_url: "{{ nb_url }}"
+    netbox_token: "{{ nb_token }}"
+    validate_certs: "{{ nb_validate_certs }}"
+    data:
+      device: "{{ device_name }}"
+      name: "{{ item.id }}"
+      manufacturer: "{{ item.manufacturer if nb_auto_create_refs else omit }}"
+      part_id: "{{ item.model }}"
+      description: "{{ item.name }}"
+    state: present
+  loop: "{{ artifact_data.storage_controllers }}"
+  loop_control:
+    label: "{{ item.id }}"
+  when: nb_create_storage_inventory
+
+- name: Create inventory items for storage drives
+  netbox.netbox.netbox_inventory_item:
+    netbox_url: "{{ nb_url }}"
+    netbox_token: "{{ nb_token }}"
+    validate_certs: "{{ nb_validate_certs }}"
+    data:
+      device: "{{ device_name }}"
+      name: "{{ item.id }}"
+      manufacturer: "{{ item.manufacturer if nb_auto_create_refs else omit }}"
+      part_id: "{{ item.model }}"
+      serial: "{{ item.serial_number }}"
+      description: "{{ item.media_type }} - {{ item.capacity_gb }}GB"
+    state: present
+  loop: "{{ artifact_data.storage_drives }}"
+  loop_control:
+    label: "{{ item.id }}"
+  when: nb_create_storage_inventory

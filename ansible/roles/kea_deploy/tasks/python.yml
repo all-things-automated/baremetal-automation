@@ -1,0 +1,79 @@
+---
+# Python environment setup tasks
+
+# Note: python3-yaml is installed via apt in install.yml
+# This avoids PEP 668 externally-managed-environment errors on Ubuntu 24.04
+
+- name: Create Python virtual environment
+  ansible.builtin.command:
+    cmd: python3 -m venv {{ kea_venv_path }}
+    creates: "{{ kea_venv_path }}/bin/activate"
+  when: kea_use_venv
+  tags: [python]
+
+- name: Install Python packages in virtual environment
+  ansible.builtin.pip:
+    name: "{{ kea_python_packages }}"
+    virtualenv: "{{ kea_venv_path }}"
+    virtualenv_command: python3 -m venv
+  when: kea_use_venv
+  notify:
+    - Restart kea-lease-monitor
+  tags: [python]
+
+- name: Deploy lease monitor script
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../python/src/baremetal/kea_lease_monitor.py"
+    dest: "{{ kea_python_scripts_dir }}/kea_lease_monitor.py"
+    owner: "{{ kea_service_user }}"
+    group: "{{ kea_service_group }}"
+    mode: "0755"
+  when: kea_enable_lease_monitor
+  notify: Restart kea-lease-monitor
+  tags: [python]
+
+- name: Deploy vault credentials module
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../python/src/baremetal/vault_credentials.py"
+    dest: "{{ kea_python_scripts_dir }}/vault_credentials.py"
+    owner: "{{ kea_service_user }}"
+    group: "{{ kea_service_group }}"
+    mode: "0644"
+  when: kea_use_vault
+  tags: [python]
+
+- name: Deploy SOLIDserver connection module
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../python/src/baremetal/solidserver_connection.py"
+    dest: "{{ kea_python_scripts_dir }}/solidserver_connection.py"
+    owner: "{{ kea_service_user }}"
+    group: "{{ kea_service_group }}"
+    mode: "0644"
+  when: kea_enable_dns
+  tags: [python]
+
+- name: Deploy Python package __init__.py
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../python/src/baremetal/__init__.py"
+    dest: "{{ kea_python_scripts_dir }}/__init__.py"
+    owner: "{{ kea_service_user }}"
+    group: "{{ kea_service_group }}"
+    mode: "0644"
+  tags: [python]
+
+- name: Deploy requirements.txt
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../python/requirements.txt"
+    dest: "{{ kea_app_base_dir }}/requirements.txt"
+    owner: "{{ kea_service_user }}"
+    group: "{{ kea_service_group }}"
+    mode: "0644"
+  tags: [python]
+
+- name: Set ownership of scripts directory
+  ansible.builtin.file:
+    path: "{{ kea_python_scripts_dir }}"
+    owner: "{{ kea_service_user }}"
+    group: "{{ kea_service_group }}"
+    recurse: true
+  tags: [python]

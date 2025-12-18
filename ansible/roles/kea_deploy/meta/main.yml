@@ -1,0 +1,23 @@
+---
+galaxy_info:
+  author: Bare-Metal Automation Team
+  description: Deploy and configure Kea DHCP server with BMC discovery integration
+  license: MIT
+  min_ansible_version: "2.17.14"
+  
+  platforms:
+    - name: Ubuntu
+      versions:
+        - noble  # 24.04 LTS
+        - jammy  # 22.04 LTS
+  
+  galaxy_tags:
+    - dhcp
+    - kea
+    - bmc
+    - redfish
+    - discovery
+    - netbox
+    - automation
+
+dependencies: []

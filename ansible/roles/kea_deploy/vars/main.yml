@@ -1,0 +1,40 @@
+---
+# vars file for kea_deploy
+
+# Required packages for installation
+kea_packages:
+  - kea-dhcp4-server
+  - kea-ctrl-agent
+  - kea-admin
+  - python3
+  - python3-pip
+  - python3-venv
+  - python3-yaml
+
+# Packages to remove (Kea only, not Python)
+kea_packages_to_remove:
+  - kea-dhcp4-server
+  - kea-ctrl-agent
+  - kea-admin
+
+# Python requirements (for venv mode only)
+kea_python_packages:
+  - pyyaml>=6.0
+
+# System paths
+kea_control_socket: "/run/kea/kea4-ctrl-socket"
+kea_hook_library_path: "/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp_run_script.so"
+
+# Service names
+kea_dhcp_service: "kea-dhcp4-server"
+kea_monitor_service: "kea-lease-monitor"
+
+# Required variables (must be defined by user)
+kea_required_vars:
+  - kea_interface
+  - kea_subnet_cidr
+  - kea_pool_start
+  - kea_pool_end
+  - kea_gateway
+  - kea_dns_servers
+  - kea_domain_name

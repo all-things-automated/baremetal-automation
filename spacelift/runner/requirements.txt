@@ -1,0 +1,24 @@
+# Python Requirements for Spacelift Ansible Runner
+# These packages support the discovery and nb_register roles
+
+# Ansible Core Dependencies
+pyyaml>=6.0
+
+# NetBox API Client (for netbox.netbox collection)
+pynetbox>=7.0.0
+
+# Redfish API Support (for community.general.redfish_info)
+# Note: Already included in community.general collection dependencies
+
+# SSL/TLS Support
+certifi>=2024.0.0
+cryptography>=43.0.0
+pyOpenSSL>=24.0.0
+
+# HTTP Client
+requests>=2.32.0
+urllib3>=2.2.0
+
+# Character Encoding
+charset-normalizer>=3.3.0
+idna>=3.7

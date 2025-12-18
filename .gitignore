@@ -1,0 +1,51 @@
+# Personal progress notes (local tracking only)
+# Format: docs/.YYYY-MM-DD-progress.md
+docs/.*-progress.md
+
+# Notes
+# TODO: Update .gitignore as needed for your project
+.TODO
+.outputs.md
+.DESIGN.md
+
+# Ansible runtime artifacts
+ansible/artifacts/*.yml
+!ansible/artifacts/.gitkeep
+
+# Ansible fact cache
+ansible/.ansible/
+.ansible/
+
+# Ansible retry files (if enabled)
+*.retry
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+
+# Python test outputs
+python/tests/output/
+
+# Environment variables
+.env
+*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# REDFISH
+.redfish/

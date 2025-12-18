@@ -1,0 +1,12 @@
+---
+# Ansible Collections for Spacelift Runner
+# These collections are required by the discovery and nb_register roles
+
+collections:
+  - name: community.general
+    version: ">=8.0.0"
+    source: https://galaxy.ansible.com
+
+  - name: netbox.netbox
+    version: ">=3.18.0"
+    source: https://galaxy.ansible.com

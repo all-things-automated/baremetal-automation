@@ -1,0 +1,164 @@
+{%- set cabinet_match = bmc_name | regex_search('cab([0-9]{1,2})', '\\1') %}
+{%- set ru_range = bmc_name | regex_search('ru([0-9]{1,2})-([0-9]{1,2})', '\\1', '\\2') %}
+{%- set ru_single = bmc_name | regex_search('ru([0-9]{1,2})', '\\1') %}
+{%- if ru_range and ru_range | length == 2 %}
+{%-   set from_num = ru_range[0] | int %}
+{%-   set to_num = ru_range[1] | int %}
+{%-   set ru_from = [from_num, to_num] | min %}
+{%-   set ru_to = [from_num, to_num] | max %}
+{%- elif ru_single %}
+{%-   set ru_from = ru_single[0] %}
+{%-   set ru_to = ru_single[0] %}
+{%- else %}
+{%-   set ru_from = "" %}
+{%-   set ru_to = "" %}
+{%- endif %}
+physical_identity:
+  bmc_ip: {{ bmc_ip }}
+  bmc_name: {{ bmc_name }}
+  bmc_fqdn: {{ bmc_fqdn }}
+  cabinet_id: '{{ cabinet_match[0] if cabinet_match else '' }}'
+  rack_unit_from: '{{ ru_from }}'
+  rack_unit_to: '{{ ru_to }}'
+  discover_timestamp: '{{ ansible_date_time.iso8601 }}'
+  lifecycle_state: {{ discovery_lifecycle_state if discovery_lifecycle_state else 'null' }}
+system_information:
+{% for pair in (facts.system.entries | default([])) %}
+{%   set sys = pair[1] %}
+- category: System
+  type: System
+  id: {{ sys.Id | default('') }}
+  name: {{ sys.Name | default('') }}
+  manufacturer: {{ sys.Manufacturer | default('') }}
+  model: {{ sys.Model | default(sys.ModelName | default('')) }}
+  serial_number: {{ sys.SerialNumber | default('') }}
+  bios_version: {{ sys.BiosVersion | default('') }}
+  power_state: '{{ sys.PowerState | default('') }}'
+  part_number: {{ sys.PartNumber | default('') }}
+  asset_tag: {{ sys.AssetTag | default('') }}
+  sku: {{ sys.SKU | default('') }}
+  uuid: '{{ sys.UUID | default('') }}'
+{% endfor %}
+storage_controllers:
+{% for pair in (facts.storage_controller.entries | default([])) %}
+{%   set items = pair[1] | default([]) %}
+{%   for sc in items %}
+- category: Storage
+  type: Controller
+  id: {{ sc.Id | default('') }}
+  name: {{ sc.Name | default('') }}
+  model: {{ sc.Model | default('') }}
+  manufacturer: {{ sc.Manufacturer | default('') }}
+  firmware_version: {{ sc.FirmwareVersion | default('') }}
+  status:
+    state: {{ sc.Status.State | default('') if sc.Status is defined else '' }}
+    health: {{ sc.Status.Health if sc.Status is defined and sc.Status.Health else 'null' }}
+{%   endfor %}
+{% endfor %}
+storage_drives:
+{% for pair in (facts.disk.entries | default([])) %}
+{%   set system_uri = pair[0] %}
+{%   set controllers = pair[1] | default([]) %}
+{%   for ctrl in controllers %}
+{%     for drive in (ctrl.Drives | default([])) %}
+- category: Storage
+  type: Drive
+  id: {{ drive.Id | default('') }}
+  name: {{ drive.Name | default('') }}
+  model: {{ drive.Model | default('') }}
+  manufacturer: {{ drive.Manufacturer | default('') }}
+  serial_number: {{ drive.SerialNumber | default('') }}
+  capacity_bytes: {{ drive.CapacityBytes | default(0) }}
+  capacity_gb: {{ ((drive.CapacityBytes | default(0)) / 1073741824) | round(2) }}
+  media_type: {{ drive.MediaType | default('') }}
+  protocol: {{ drive.Protocol | default('') }}
+  revision: {{ drive.Revision | default('') }}
+  block_size_bytes: {{ drive.BlockSizeBytes | default(0) }}
+  capable_speed_gbs: {{ drive.CapableSpeedGbs | default(0) }}
+  encryption_ability: {{ drive.EncryptionAbility | default('') }}
+  encryption_status: {{ drive.EncryptionStatus | default('') }}
+  failure_predicted: {{ drive.FailurePredicted | default(false) | lower }}
+  hotspare_type: {{ drive.HotspareType | default('') }}
+  physical_location:
+    slot: {{ drive.PhysicalLocation.PartLocation.LocationOrdinalValue | default(0) if drive.PhysicalLocation is defined and drive.PhysicalLocation.PartLocation is defined else 0 }}
+    location_type: {{ drive.PhysicalLocation.PartLocation.LocationType | default('') if drive.PhysicalLocation is defined and drive.PhysicalLocation.PartLocation is defined else '' }}
+  identifiers:
+{%     for identifier in (drive.Identifiers | default([])) %}
+  - DurableName: {{ identifier.DurableName | default('') }}
+    DurableNameFormat: {{ identifier.DurableNameFormat | default('') }}
+{%     endfor %}
+  status:
+    state: {{ drive.Status.State | default('') if drive.Status is defined else '' }}
+    health: {{ drive.Status.Health | default('') if drive.Status is defined else '' }}
+    health_rollup: {{ drive.Status.HealthRollup | default('') if drive.Status is defined else '' }}
+  redfish_uri: {{ drive.RedfishURI | default('') }}
+  controller_id: {{ ctrl.StorageId | default('') }}
+  controller_name: {{ ctrl.Controller | default('') }}
+  volumes:
+{%     for volume in (drive.Volumes | default([])) %}
+  - {{ volume }}
+{%     endfor %}
+{%     endfor %}
+{%   endfor %}
+{% endfor %}
+network_interfaces:
+{% for pair in (facts.nic.entries | default([])) %}
+{%   set items = pair[1] | default([]) %}
+{%   for nic in items %}
+- category: Network
+  type: NIC
+  id: {{ nic.Id | default('') }}
+  name: {{ nic.Name | default('') }}
+  description: {{ nic.Description | default('') }}
+  mac_address: {{ nic.MACAddress | default('') }}
+  speed_mbps: {{ nic.SpeedMbps | default(0) }}
+  full_duplex: {{ nic.FullDuplex | default(false) | lower }}
+  link_status: {{ nic.LinkStatus | default('') }}
+  status:
+    state: {{ nic.Status.State | default('') if nic.Status is defined else '' }}
+    health: {{ nic.Status.Health if nic.Status is defined and nic.Status.Health else 'null' }}
+{%   endfor %}
+{% endfor %}
+virtual_media:
+{% for pair in (facts.virtual_media.entries | default([])) %}
+{%   set items = pair[1] | default([]) %}
+{%   for vm in items %}
+- category: System
+  type: VirtualMedia
+  id: '{{ vm.Id | default('') }}'
+  name: {{ vm.Name | default('') }}
+  description: {{ vm.Description | default('') }}
+  media_types:
+{%     for media_type in (vm.MediaTypes | default([])) %}
+  - {{ media_type }}
+{%     endfor %}
+  image: {{ vm.Image | default('') }}
+  image_name: {{ vm.ImageName | default('') }}
+  inserted: {{ vm.Inserted | default(false) | lower }}
+  write_protected: {{ vm.WriteProtected | default(true) | lower }}
+{%   endfor %}
+{% endfor %}
+collection_info:
+  total_categories: {{ [
+    (facts.system.entries | default([]) | length > 0),
+    (facts.storage_controller.entries | default([]) | length > 0),
+    (facts.disk.entries | default([]) | length > 0),
+    (facts.nic.entries | default([]) | length > 0),
+    (facts.virtual_media.entries | default([]) | length > 0)
+  ] | select() | list | length }}
+  categories_collected:
+{% if facts.system.entries | default([]) | length > 0 %}
+  - system_information
+{% endif %}
+{% if facts.storage_controller.entries | default([]) | length > 0 %}
+  - storage_controllers
+{% endif %}
+{% if facts.disk.entries | default([]) | length > 0 %}
+  - storage_drives
+{% endif %}
+{% if facts.nic.entries | default([]) | length > 0 %}
+  - network_interfaces
+{% endif %}
+{% if facts.virtual_media.entries | default([]) | length > 0 %}
+  - virtual_media
+{% endif %}

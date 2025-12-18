@@ -1,0 +1,55 @@
+---
+# Query BMC resources via Redfish API
+
+- name: Query BMC FQDN from host interfaces
+  community.general.redfish_info:
+    category: Manager
+    command: GetHostInterfaces
+    baseuri: "{{ bmc.ip }}"
+    username: "{{ discovery_bmc_username }}"
+    password: "{{ discovery_bmc_password }}"
+  register: redfish_hostif
+  failed_when: false
+  no_log: true
+  loop: "{{ bmc_targets }}"
+  loop_control:
+    loop_var: bmc
+    label: "{{ bmc.name | default(bmc.ip) }}"
+
+- name: Query system resources via Redfish
+  community.general.redfish_info:
+    category: Systems
+    command: all
+    baseuri: "{{ bmc.ip }}"
+    username: "{{ discovery_bmc_username }}"
+    password: "{{ discovery_bmc_password }}"
+  register: redfish_info_results
+  failed_when: false
+  no_log: true
+  loop: "{{ bmc_targets }}"
+  loop_control:
+    loop_var: bmc
+    label: "{{ bmc.name | default(bmc.ip) }}"
+
+- name: Build BMC FQDN lookup map
+  ansible.builtin.set_fact:
+    bmc_fqdn_map: >-
+      {{
+        (bmc_fqdn_map | default({}))
+        | combine(
+            {
+              hostif_item.bmc.ip:
+                hostif_item.redfish_facts.host_interfaces.entries[0]
+                .ManagerEthernetInterface.FQDN
+            }
+          )
+      }}
+  loop: "{{ redfish_hostif.results }}"
+  loop_control:
+    loop_var: hostif_item
+    label: "{{ hostif_item.bmc.name | default(hostif_item.bmc.ip) }}"
+  when:
+    - not (hostif_item.failed | default(false))
+    - hostif_item.redfish_facts.host_interfaces is defined
+    - hostif_item.redfish_facts.host_interfaces.entries | length > 0
+    - hostif_item.redfish_facts.host_interfaces.entries[0].ManagerEthernetInterface is defined

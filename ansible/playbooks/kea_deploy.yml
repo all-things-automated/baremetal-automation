@@ -1,0 +1,79 @@
+---
+# Official Kea DHCP Deployment Playbook
+# Deploys complete Kea DHCP server with PostgreSQL backend and custom hooks
+
+- name: Deploy Kea DHCP Server
+  hosts: all
+  become: true
+  gather_facts: true
+
+  vars:
+    # Network Configuration (customize for your deployment)
+    kea_interface: "{{ ansible_default_ipv4.interface }}"
+    kea_subnet_cidr: "{{ ansible_default_ipv4.network }}/22"
+    kea_pool_start: "172.30.19.24"
+    kea_pool_end: "172.30.19.100"
+    kea_gateway: "{{ ansible_default_ipv4.gateway }}"
+    kea_dns_servers: "192.168.204.52"
+    kea_domain_name: "site.com"
+    
+    # Database Backend Configuration
+    kea_enable_database: true
+    kea_db_enable_notify: true
+    kea_db_host: "{{ ansible_default_ipv4.address }}"
+    kea_db_password: "{{ lookup('env', 'KEA_DB_PASSWORD') | default('', true) }}"
+
+    # Vault Integration Configuration
+    kea_use_vault: true
+    kea_vault_addr: "{{ lookup('env', 'VAULT_ADDR') | default('https://vault.site.com:8200', true) }}"
+    kea_vault_token: "{{ lookup('env', 'VAULT_TOKEN') | default('', true) }}"
+
+    # DNS Integration Configuration
+    kea_enable_dns: true
+    kea_dns_zone: "site.com"
+    kea_dns_scope: "internal"
+
+    # Event-driven Processing
+    kea_use_database_events: true
+
+
+  pre_tasks:
+    - name: Validate Vault environment variables when using Vault
+      ansible.builtin.assert:
+        that:
+          - lookup('env', 'VAULT_ADDR') | length > 0
+          - lookup('env', 'VAULT_TOKEN') | length > 0
+        fail_msg: "VAULT_ADDR and VAULT_TOKEN environment variables must be set when kea_use_vault is enabled"
+        quiet: true
+      when: kea_use_vault
+
+    - name: Validate database password when not using Vault
+      ansible.builtin.assert:
+        that:
+          - kea_db_password | length > 0
+        fail_msg: "Database password must be provided via KEA_DB_PASSWORD environment variable when not using Vault"
+        quiet: true
+      when: kea_enable_database and not kea_use_vault
+    
+    - name: Display deployment information
+      ansible.builtin.debug:
+        msg:
+          - "=========================================="
+          - "Kea DHCP Server Deployment"
+          - "=========================================="
+          - "Target Host: {{ inventory_hostname }}"
+          - "Interface: {{ kea_interface }}"
+          - "Subnet: {{ kea_subnet_cidr }}"
+          - "Pool: {{ kea_pool_start }} - {{ kea_pool_end }}"
+          - "Gateway: {{ kea_gateway }}"
+          - "DNS: {{ kea_dns_servers }}"
+          - "Database Backend: {{ 'Enabled (PostgreSQL)' if kea_enable_database else 'Disabled (memfile only)' }}"
+          - "Vault Integration: {{ 'Enabled' if kea_use_vault else 'Disabled' }}"
+          - "DNS Integration: {{ 'Enabled (' + kea_dns_zone + ', ' + kea_dns_scope + ')' if kea_enable_dns else 'Disabled' }}"
+          - "Event-driven Mode: {{ 'Enabled (NOTIFY/LISTEN)' if kea_use_database_events else 'Disabled' }}"
+          - "Hook Script: {{ 'Enabled' if kea_enable_hook else 'Disabled' }}"
+          - "Lease Monitor: {{ 'Enabled' if kea_enable_lease_monitor else 'Disabled' }}"
+          - "=========================================="
+  
+  roles:
+    - kea_deploy

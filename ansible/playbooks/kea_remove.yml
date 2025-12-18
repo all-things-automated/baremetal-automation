@@ -1,0 +1,41 @@
+---
+# Example playbook for removing Kea DHCP deployment
+# Usage: ansible-playbook -i inventory/kea_servers.yml playbooks/kea_remove.yml
+
+- name: Remove Kea DHCP Server and Automation
+  hosts: all
+  become: true
+  gather_facts: true
+
+  vars:
+    # Set state to 'absent' to trigger removal
+    kea_state: absent
+    
+    # Optional: Remove packages (default: false - keeps packages installed)
+    kea_remove_packages: true
+    
+    # Optional: Remove service user/group (default: false - keeps user/group)
+    kea_remove_user: true
+
+  roles:
+    - kea_deploy
+
+  post_tasks:
+    - name: Verify services are stopped
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: stopped
+      loop:
+        - kea-dhcp4-server
+        - kea-lease-monitor
+      register: service_status
+      failed_when: false
+      changed_when: false
+
+    - name: Display service status
+      ansible.builtin.debug:
+        msg: |
+          Service Status Check:
+          {% for result in service_status.results %}
+            - {{ result.item }}: {{ 'Stopped' if result.status is defined and result.status.ActiveState == 'inactive' else 'Not Found' }}
+          {% endfor %}

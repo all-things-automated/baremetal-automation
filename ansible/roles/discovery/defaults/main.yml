@@ -1,0 +1,21 @@
+---
+# Discovery artifact output directory
+# Discovery artifact output directory
+# Note: ansible-runner creates its own artifact directory structure.
+# When using ansible-runner, you can reference the runner's artifact dir:
+# discovery_artifact_dir: "{{ ansible_runner_artifact_dir | default(playbook_dir + '/../artifacts') }}"
+discovery_artifact_dir: "{{ playbook_dir }}/../artifacts"
+
+# Artifact template file name
+discovery_template_path: "discovery_artifact.yml.j2"
+
+# BMC authentication credentials
+discovery_bmc_username: ""
+discovery_bmc_password: ""
+
+# Lifecycle state for artifact (discovered, commissioned, deployed, repurpose-ready)
+# Set to empty string to preserve existing NetBox state
+discovery_lifecycle_state: "discovered"
+
+# Target BMCs for discovery (ip: required, name: optional)
+bmc_targets: []

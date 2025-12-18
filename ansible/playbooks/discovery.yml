@@ -1,0 +1,17 @@
+---
+- name: Execute The Discovery Playbook
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    discovery_bmc_username: "{{ lookup('env', 'BMC_USERNAME') }}"
+    discovery_bmc_password: "{{ lookup('env', 'BMC_PASSWORD') }}"
+
+    bmc_targets:
+      - ip: "172.30.19.42"
+      - ip: "172.30.19.48"
+      - ip: "172.30.19.43"
+      - ip: "172.30.19.53"
+
+  roles:
+    - discovery

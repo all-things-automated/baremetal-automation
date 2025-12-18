@@ -1,0 +1,13 @@
+---
+- name: Register all Discovered Baremetal Hosts in NetBox
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    nb_url: "{{ lookup('env', 'NETBOX_URL') | default('') }}"
+    nb_token: "{{ lookup('env', 'NETBOX_TOKEN') }}"
+    nb_auto_create_refs: true
+    nb_default_device_role: "Lab Server"
+
+  roles:
+    - nb_register

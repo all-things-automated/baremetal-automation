@@ -1,0 +1,63 @@
+[Unit]
+Description=Kea DHCP Lease Monitor for Bare-Metal Discovery
+Documentation=file://{{ kea_app_base_dir }}/docs/KEA.md
+After=network.target {{ kea_dhcp_service }}.service
+Wants={{ kea_dhcp_service }}.service
+
+[Service]
+Type=simple
+User={{ kea_service_user }}
+Group={{ kea_service_group }}
+WorkingDirectory={{ kea_python_scripts_dir }}
+
+{% if kea_use_vault %}
+# Vault environment variables
+Environment="VAULT_ADDR={{ kea_vault_addr }}"
+Environment="VAULT_TOKEN={{ kea_vault_token }}"
+Environment="VAULT_SKIP_VERIFY=true"
+{% endif %}
+
+{% if kea_use_venv %}
+ExecStart={{ kea_venv_path }}/bin/python3 \
+{% else %}
+ExecStart=/usr/bin/python3 \
+{% endif %}
+  {{ kea_python_scripts_dir }}/kea_lease_monitor.py{% if kea_use_database_events or kea_enable_database %} \
+  --db-host {{ kea_db_host }} \
+  --db-port {{ kea_db_port }} \
+  --db-name {{ kea_db_name }} \
+  --db-user {{ kea_db_user }}{% if not kea_use_vault %} \
+  --db-password {{ kea_db_password }}{% endif %}{% endif %}{% if kea_use_vault %} \
+  --use-vault{% endif %}{% if kea_enable_dns %} \
+  --enable-dns \
+  --dns-zone {{ kea_dns_zone }} \
+  --dns-scope {{ kea_dns_scope }}{% endif %}{% if kea_use_database_events %} \
+  --use-database-events{% else %} \
+  --lease-file {{ kea_lease_file }} \
+  --poll-interval {{ kea_lease_monitor_poll_interval }}{% endif %} \
+  --output-dir {{ kea_discovery_output_dir }} \
+  --log-level {{ kea_lease_monitor_log_level }}
+
+# Restart policy
+Restart=always
+RestartSec=10
+StartLimitBurst=5
+StartLimitInterval=300
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths={{ kea_discovery_output_dir }}
+
+# Resource limits
+LimitNOFILE=4096
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier={{ kea_monitor_service }}
+
+[Install]
+WantedBy=multi-user.target

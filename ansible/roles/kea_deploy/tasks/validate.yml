@@ -1,0 +1,64 @@
+---
+# Post-deployment validation tasks
+
+- name: Validate Kea DHCP configuration syntax
+  ansible.builtin.command:
+    cmd: kea-dhcp4 -t {{ kea_config_dir }}/kea-dhcp4.conf
+  changed_when: false
+  register: kea_config_test
+
+- name: Display configuration validation result
+  ansible.builtin.debug:
+    msg: "Kea configuration is valid"
+  when: kea_config_test.rc == 0
+
+- name: Check Kea DHCP service status
+  ansible.builtin.systemd:
+    name: "{{ kea_dhcp_service }}"
+  register: kea_service_status
+  changed_when: false
+
+- name: Verify Kea DHCP is running
+  ansible.builtin.assert:
+    that:
+      - kea_service_status.status.ActiveState == "active"
+    fail_msg: "Kea DHCP service is not running"
+    success_msg: "Kea DHCP service is active and running"
+
+- name: Check Kea lease monitor status
+  ansible.builtin.systemd:
+    name: "{{ kea_monitor_service }}"
+  register: monitor_service_status
+  changed_when: false
+  when: kea_enable_lease_monitor
+
+- name: Verify lease monitor is running
+  ansible.builtin.assert:
+    that:
+      - monitor_service_status.status.ActiveState == "active"
+    fail_msg: "Kea lease monitor service is not running"
+    success_msg: "Kea lease monitor service is active and running"
+  when: kea_enable_lease_monitor
+
+- name: Verify lease file exists
+  ansible.builtin.stat:
+    path: "{{ kea_lease_file }}"
+  register: lease_file_stat
+
+- name: Display lease file status
+  ansible.builtin.debug:
+    msg: "Lease file {{ 'exists' if lease_file_stat.stat.exists else 'will be created on first lease' }}"
+
+- name: Verify output directory permissions
+  ansible.builtin.stat:
+    path: "{{ kea_discovery_output_dir }}"
+  register: output_dir_stat
+
+- name: Assert output directory has correct permissions
+  ansible.builtin.assert:
+    that:
+      - output_dir_stat.stat.exists
+      - output_dir_stat.stat.isdir
+      - output_dir_stat.stat.pw_name == kea_service_user
+    fail_msg: "Output directory permissions are incorrect"
+    success_msg: "Output directory configured correctly"

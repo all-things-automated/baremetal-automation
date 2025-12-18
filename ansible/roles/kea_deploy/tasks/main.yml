@@ -1,0 +1,83 @@
+---
+# tasks file for kea_deploy
+
+- name: Include removal tasks when kea_state is 'absent'
+  ansible.builtin.include_tasks: remove.yml
+  when: kea_state | default('present') == 'absent'
+  tags: [always, remove, backout]
+
+- name: End play after removal
+  ansible.builtin.meta: end_play
+  when: kea_state | default('present') == 'absent'
+  tags: [always, remove, backout]
+
+- name: Validate required variables are defined
+  ansible.builtin.assert:
+    that:
+      - lookup('vars', item, default='') | length > 0
+    fail_msg: "Required variable '{{ item }}' is not defined"
+    quiet: true
+  loop: "{{ kea_required_vars }}"
+  tags: [always]
+
+- name: Include package installation tasks
+  ansible.builtin.include_tasks:
+    file: install.yml
+    apply:
+      tags: [packages]
+  tags: [packages]
+
+- name: Include directory setup tasks
+  ansible.builtin.include_tasks:
+    file: setup.yml
+    apply:
+      tags: [setup]
+  tags: [setup]
+
+- name: Include Python environment setup tasks
+  ansible.builtin.include_tasks:
+    file: python.yml
+    apply:
+      tags: [python]
+  tags: [python]
+
+- name: Include database backend setup tasks
+  ansible.builtin.include_tasks:
+    file: database.yml
+    apply:
+      tags: [database, db]
+  when: kea_enable_database
+  tags: [database, db]
+
+- name: Include configuration tasks
+  ansible.builtin.include_tasks:
+    file: config.yml
+    apply:
+      tags: [config]
+  tags: [config]
+
+- name: Include hook deployment tasks
+  ansible.builtin.include_tasks:
+    file: hooks.yml
+    apply:
+      tags: [scripts, hooks]
+  when: kea_enable_hook
+  tags: [scripts, hooks]
+
+- name: Include service configuration tasks
+  ansible.builtin.include_tasks:
+    file: services.yml
+    apply:
+      tags: [services]
+  tags: [services]
+
+- name: Include validation tasks
+  ansible.builtin.include_tasks:
+    file: validate.yml
+    apply:
+      tags: [validation, verify]
+  tags: [validation, verify]
+
+- name: Include deployment summary tasks
+  ansible.builtin.include_tasks: summary.yml
+  tags: [always, summary]

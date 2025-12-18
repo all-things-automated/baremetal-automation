@@ -1,0 +1,28 @@
+---
+# Directory setup tasks
+# Note: _kea user is automatically created by kea-dhcp4-server package installation
+
+- name: Create required directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner | default(kea_service_user) }}"
+    group: "{{ item.group | default(kea_service_group) }}"
+    mode: "{{ item.mode | default('0755') }}"
+  loop:
+    - path: "{{ kea_config_dir }}"
+      mode: "0755"
+    - path: "/var/lib/kea"
+      mode: "0755"
+    - path: "{{ kea_discovery_output_dir }}"
+      mode: "0750"
+    - path: "{{ kea_log_dir }}"
+      mode: "0750"
+    - path: "{{ kea_python_scripts_dir }}"
+      mode: "0755"
+    - path: "/usr/share/kea/scripts"
+      owner: root
+      group: root
+      mode: "0755"
+  loop_control:
+    label: "{{ item.path }}"

@@ -1,0 +1,68 @@
+---
+# NetBox connection parameters
+nb_url: ""
+nb_token: ""
+nb_validate_certs: "{{ lookup('env', 'NETBOX_VALIDATE_CERTS') | default('false') | bool }}"
+
+# Auto-create missing NetBox objects (site, device role, device type, rack)
+nb_auto_create_refs: false
+
+# Discovery artifact directory
+discovery_artifact_dir: "{{ playbook_dir }}/../artifacts"
+
+# Explicit artifact paths (overrides directory scan)
+artifact_paths: []
+
+# NetBox fallback values
+nb_default_site: ""
+nb_default_device_role: ""
+
+# Tag configuration (auto-created in NetBox)
+# Tags are applied to devices during registration for categorization and filtering
+nb_tags:
+  lifecycle:
+    name: "Lifecycle - Discovered"
+    slug: "discovered"
+    color: "2196f3"
+    description: "Device discovered via BMC but not yet commissioned"
+  automation:
+    name: "Automation - Managed"
+    slug: "automation-managed"
+    color: "607d8b"
+    description: "Device managed by automation workflows"
+  site:
+    # Site tag is dynamically generated based on BMC name prefix
+    # Valid values: US1, US2, US3, US4, DV
+    color: "00bcd4"
+    description_template: "Device located in SITE_CODE Plex DataCenter"
+
+# Lifecycle tag replacement behavior
+# If true: Always replace existing lifecycle tags with 'discovered' tag
+# If false: Only apply 'discovered' tag if device has no lifecycle tags (preserves manual tagging)
+nb_lifecycle_force_overwrite: false
+
+# Tags to apply during registration
+# By default, applies all tags defined in nb_tags
+# To selectively disable tags, override with specific list (e.g., ['lifecycle', 'automation'])
+nb_apply_tags:
+  - lifecycle
+  - automation
+  - site
+
+# Feature toggles
+nb_create_bmc_interface: true
+nb_create_bmc_custom_link: true
+nb_create_storage_inventory: true
+
+# BMC interface fallback name
+nb_bmc_interface_name: "BMC"
+
+# BMC service configuration
+nb_bmc_service_name: "HTTPS"
+nb_bmc_service_protocol: "tcp"
+nb_bmc_service_ports: [443]
+
+# Custom link configuration
+nb_bmc_custom_link_name: "BMC Web Interface"
+nb_bmc_custom_link_weight: 100
+nb_bmc_custom_link_new_window: true

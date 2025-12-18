@@ -1,0 +1,32 @@
+---
+# Configuration management tasks
+
+- name: Render Kea DHCP configuration
+  ansible.builtin.template:
+    src: kea-dhcp4.conf.j2
+    dest: "{{ kea_config_dir }}/kea-dhcp4.conf"
+    owner: root
+    group: "{{ kea_service_group }}"
+    mode: "0640"
+  notify: restart kea-dhcp4-server
+
+- name: Create logrotate configuration for Kea
+  ansible.builtin.copy:
+    dest: /etc/logrotate.d/kea
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      {{ kea_log_dir }}/*.log {
+          daily
+          rotate 14
+          compress
+          delaycompress
+          notifempty
+          create 0640 {{ kea_service_user }} {{ kea_service_group }}
+          sharedscripts
+          postrotate
+              systemctl reload {{ kea_dhcp_service }} > /dev/null 2>&1 || true
+              systemctl reload {{ kea_monitor_service }} > /dev/null 2>&1 || true
+          endscript
+      }

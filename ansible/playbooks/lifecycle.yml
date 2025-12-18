@@ -1,0 +1,18 @@
+---
+- name: Execute the Discovery Workflow for Baremetal Hosts
+  hosts: localhost
+  gather_facts: true
+  vars:
+    discovery_bmc_username: "{{ lookup('env', 'BMC_USERNAME') }}"
+    discovery_bmc_password: "{{ lookup('env', 'BMC_PASSWORD') }}"
+    nb_url: "{{ lookup('env', 'NETBOX_URL', default='https://netbox.global.plex/') }}"
+    nb_token: "{{ lookup('env', 'NETBOX_TOKEN') }}"
+    bmc_targets:
+      - ip: "172.30.19.42"
+      - ip: "172.30.19.48"
+    nb_auto_create_refs: true
+    nb_default_device_role: "Lab Server"
+
+  roles:
+    - discovery
+    - nb_register

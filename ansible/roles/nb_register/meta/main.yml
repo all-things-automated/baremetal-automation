@@ -1,0 +1,16 @@
+galaxy_info:
+  author: Ean Wilson
+  description: NetBox device registration from Redfish discovery artifacts
+  company: Rockwell Automation
+  license: MIT
+  min_ansible_version: "2.17.14"
+
+  galaxy_tags:
+    - netbox
+    - dcim
+    - registration
+    - baremetal
+    - redfish
+    - inventory
+
+dependencies: []

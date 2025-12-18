@@ -1,0 +1,8 @@
+---
+# vars file for discovery
+
+# Required variables (must be defined by user)
+discovery_required_vars:
+  - discovery_bmc_username
+  - discovery_bmc_password
+  - bmc_targets

@@ -1,0 +1,19 @@
+---
+# tasks file for nb_register
+
+- name: Validate required NetBox connection parameters
+  ansible.builtin.assert:
+    that:
+      - nb_url | length > 0
+      - nb_token | length > 0
+    fail_msg: "nb_url and nb_token must be provided"
+    quiet: true
+  tags: [always, validation]
+
+- name: Include NetBox setup and artifact discovery tasks
+  ansible.builtin.include_tasks: setup.yml
+  tags: [setup, artifacts]
+
+- name: Include device registration tasks
+  ansible.builtin.include_tasks: register.yml
+  tags: [register, devices]

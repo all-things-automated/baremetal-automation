@@ -1,0 +1,128 @@
+---
+# Removal/backout tasks - reverses all changes made by this role
+
+- name: Stop and disable all Kea-related systemd services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  loop:
+    - "{{ kea_monitor_service }}"
+    - "{{ kea_dhcp_service }}"
+    - kea-ctrl-agent
+  ignore_errors: true
+  tags: [services]
+
+- name: Remove systemd service files
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ item }}.service"
+    state: absent
+  loop:
+    - "{{ kea_monitor_service }}"
+  notify: reload systemd
+  tags: [services]
+
+- name: Remove logrotate configuration
+  ansible.builtin.file:
+    path: /etc/logrotate.d/kea
+    state: absent
+  tags: [config]
+
+- name: Remove Kea DHCP configuration
+  ansible.builtin.file:
+    path: "{{ kea_config_dir }}/kea-dhcp4.conf"
+    state: absent
+  tags: [config]
+
+- name: Remove hook library
+  ansible.builtin.file:
+    path: "{{ kea_hook_library_path }}"
+    state: absent
+  when: kea_enable_hook
+  tags: [hooks]
+
+- name: Remove Python scripts
+  ansible.builtin.file:
+    path: "{{ kea_python_scripts_dir }}"
+    state: absent
+  tags: [python]
+
+- name: Remove application base directory
+  ansible.builtin.file:
+    path: "{{ kea_app_base_dir }}"
+    state: absent
+  tags: [setup]
+
+- name: Remove discovery output directory
+  ansible.builtin.file:
+    path: "{{ kea_discovery_output_dir }}"
+    state: absent
+  tags: [setup]
+
+- name: Remove log directory
+  ansible.builtin.file:
+    path: "{{ kea_log_dir }}"
+    state: absent
+  tags: [setup]
+
+- name: Remove Kea service user
+  ansible.builtin.user:
+    name: "{{ kea_service_user }}"
+    state: absent
+    remove: true
+  when: kea_remove_user | default(false)
+  tags: [setup]
+
+- name: Remove Kea service group
+  ansible.builtin.group:
+    name: "{{ kea_service_group }}"
+    state: absent
+  when: kea_remove_user | default(false)
+  tags: [setup]
+
+- name: Remove Python virtual environment packages
+  ansible.builtin.file:
+    path: "{{ kea_venv_path }}"
+    state: absent
+  when: kea_use_venv
+  tags: [python]
+
+- name: Uninstall Kea DHCP packages
+  ansible.builtin.apt:
+    name: "{{ kea_packages_to_remove }}"
+    state: absent
+    purge: true
+  when: kea_remove_packages | default(false)
+  tags: [packages]
+
+- name: Display removal summary
+  ansible.builtin.debug:
+    msg: |
+      ================================================
+      Kea DHCP Removal Summary
+      ================================================
+      Services stopped and disabled:
+        - {{ kea_dhcp_service }}
+        - {{ kea_monitor_service }}
+      
+      Directories removed:
+        - {{ kea_app_base_dir }}
+        - {{ kea_discovery_output_dir }}
+        - {{ kea_log_dir }}
+      
+      Configuration removed:
+        - {{ kea_config_dir }}/kea-dhcp4.conf
+        - /etc/logrotate.d/kea
+      
+      {% if kea_remove_user | default(false) %}
+      User/Group removed:
+        - {{ kea_service_user }}
+        - {{ kea_service_group }}
+      {% endif %}
+      
+      {% if kea_remove_packages | default(false) %}
+      Packages removed:
+        - {{ kea_packages | join(', ') }}
+      {% endif %}
+      ================================================
+  tags: [always]

@@ -1,0 +1,12 @@
+---
+# Hook script deployment tasks
+
+- name: Deploy Kea hook script
+  ansible.builtin.copy:
+    src: kea-ansible-hook.sh
+    dest: "{{ kea_hook_script_path }}"
+    owner: root
+    group: "{{ kea_service_group }}"
+    mode: "0750"
+  notify: restart kea-dhcp4-server
+  when: kea_enable_hook

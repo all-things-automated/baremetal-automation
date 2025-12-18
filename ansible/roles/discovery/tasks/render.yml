@@ -1,0 +1,37 @@
+---
+# Render discovery artifacts from template
+
+- name: Ensure artifact output directory exists
+  ansible.builtin.file:
+    path: "{{ discovery_artifact_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Render discovery artifacts from template
+  ansible.builtin.template:
+    src: "{{ discovery_template_path }}"
+    dest: "{{ discovery_artifact_dir }}/{{ output_filename }}-discovery.yml"
+    mode: '0644'
+  loop: "{{ redfish_info_results.results }}"
+  loop_control:
+    loop_var: result
+    label: "{{ output_filename }}-discovery.yml"
+  vars:
+    bmc_ip: "{{ result.bmc.ip }}"
+    bmc_fqdn: "{{ bmc_fqdn_map[result.bmc.ip] | default('') }}"
+    bmc_name: "{{ (bmc_fqdn | split('.'))[0] if bmc_fqdn else result.bmc.ip }}"
+    output_filename: "{{ result.bmc.ip }}"
+    facts: "{{ result.redfish_facts }}"
+  when: not (result.failed | default(false))
+  register: discovery_artifacts
+  no_log: true
+
+- name: Display discovery summary
+  ansible.builtin.debug:
+    msg:
+      - "Total BMCs targeted: {{ bmc_targets | length }}"
+      - "Successful discoveries: {{ redfish_info_results.results | selectattr('failed', 'undefined') | list | length }}"
+      - "Failed discoveries: {{ redfish_info_results.results | selectattr('failed', 'defined') | selectattr('failed') | list | length }}"
+      - "Artifacts directory: {{ discovery_artifact_dir }}"
+      - "Files created: {{ discovery_artifacts.results | map(attribute='dest') | map('basename') | list | join(', ') }}"
+      - "Already discovered (unchanged): {{ discovery_artifacts.results | rejectattr('changed') | map(attribute='dest') | map('basename') | list | join(', ') if (discovery_artifacts.results | rejectattr('changed') | list | length > 0) else 'none' }}"

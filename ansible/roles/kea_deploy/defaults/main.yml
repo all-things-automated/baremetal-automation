@@ -1,0 +1,105 @@
+---
+# defaults file for kea_deploy
+
+# State management
+kea_state: "present"                      # 'present' to install/configure, 'absent' to remove
+
+# Removal options (only used when kea_state == 'absent')
+kea_remove_packages: false                # Remove Kea packages when backing out
+kea_remove_user: false                    # Remove kea service user/group when backing out
+
+# Required variables validation list
+kea_required_vars:
+  - kea_subnet_cidr
+  - kea_pool_start
+  - kea_pool_end
+  - kea_gateway
+  - kea_dns_servers
+  - kea_domain_name
+
+# Kea DHCP server configuration
+kea_subnet_id: 1
+kea_lease_lifetime: 600                   # 10 minutes
+kea_max_lease_lifetime: 7200              # 2 hours
+kea_lfc_interval: 3600                    # 1 hour
+
+# Database backend configuration (PostgreSQL for host reservations)
+kea_enable_database: false                # Enable PostgreSQL database backend
+kea_db_host: "localhost"                 # PostgreSQL server hostname
+kea_db_port: 5432                         # PostgreSQL server port
+kea_db_name: "kea"                        # Database name
+kea_db_user: "kea"                        # Database username
+kea_db_password: ""                       # Database password (use vault)
+kea_db_init_schema: true                  # Initialize Kea schema on first deployment
+kea_db_validate_connection: true          # Test database connectivity before config
+kea_db_enable_notify: false               # Install NOTIFY/LISTEN trigger for event-driven processing
+
+# Hook configuration
+kea_enable_hook: false
+kea_hook_script_path: "/usr/share/kea/scripts/kea-ansible-hook.sh"
+kea_hook_sync: false
+
+# Lease monitor service configuration
+kea_enable_lease_monitor: true
+kea_lease_monitor_poll_interval: 5        # Poll interval in seconds
+kea_lease_monitor_log_level: "INFO"
+
+# DNS integration configuration (event-driven, transactional)
+kea_enable_dns: false                     # Enable DNS record creation
+kea_dns_zone: ""                          # DNS zone (e.g., example.com)
+kea_dns_scope: "internal"                 # DNS scope (internal/external)
+
+# Vault integration configuration
+kea_use_vault: false                      # Use HashiCorp Vault for credentials
+kea_vault_addr: ""                        # Vault server address (or use VAULT_ADDR env var)
+kea_vault_token: ""                       # Vault token (or use VAULT_TOKEN env var)
+
+# Event-driven processing
+kea_use_database_events: false            # Use PostgreSQL NOTIFY/LISTEN for real-time processing
+
+# File paths
+kea_config_dir: "/etc/kea"
+kea_lease_file: "/var/lib/kea/kea-leases4.csv"
+kea_discovery_output_dir: "/var/lib/kea/discovery"
+kea_log_dir: "/var/log/kea"
+
+# Application deployment
+kea_app_base_dir: "/opt/baremetal-automation"
+kea_python_scripts_dir: "{{ kea_app_base_dir }}"
+kea_venv_path: "{{ kea_app_base_dir }}/venv"
+kea_use_venv: false                       # Use system Python
+
+# Service management
+kea_dhcp_service: "kea-dhcp4-server"
+kea_monitor_service: "kea-lease-monitor"
+kea_service_user: "_kea"
+kea_service_group: "_kea"
+kea_restart_services: true
+
+# Package versions (empty = latest, or specify version like "2.4.1-1")
+# To pin a specific version: kea_package_version: "2.4.1-1"
+# To find available versions: apt-cache madison kea-dhcp4-server
+kea_package_version: ""
+
+# Python package dependencies (for venv mode only)
+# When kea_use_venv=false, python3-yaml is installed via apt
+kea_python_packages:
+  - pyyaml>=6.0
+
+# Firewall management
+kea_configure_firewall: false
+kea_dhcp_port: 67
+
+# Auto-detect network configuration
+kea_auto_detect_network: true             # Gather facts to detect interface/network
+kea_primary_interface: "{{ ansible_default_ipv4.interface | default('eth0') }}"
+
+# Network configuration (REQUIRED - no defaults)
+# These MUST be set by the user for their specific environment
+kea_interface: ""                         # e.g., "eth0" or auto-detected
+kea_subnet_cidr: ""                       # e.g., "172.30.19.0/24"
+kea_pool_start: ""                        # e.g., "172.30.19.100"
+kea_pool_end: ""                          # e.g., "172.30.19.200"
+kea_gateway: ""                           # e.g., "172.30.19.1"
+kea_dns_servers: ""                       # e.g., "172.30.19.10, 172.30.19.11"
+kea_domain_name: ""                       # e.g., "example.com"

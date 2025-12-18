@@ -1,0 +1,266 @@
+---
+# Database backend setup tasks for Kea DHCP
+
+- name: Validate required database variables
+  ansible.builtin.assert:
+    that:
+      - kea_db_host | length > 0
+      - kea_db_name | length > 0
+      - kea_db_user | length > 0
+      - kea_db_password | length > 0
+    fail_msg: "Database connection parameters (kea_db_host, kea_db_name, kea_db_user, kea_db_password) must be provided when kea_enable_database=true"
+    quiet: true
+  tags: [always, validation]
+
+- name: Install PostgreSQL common packages
+  ansible.builtin.apt:
+    name:
+      - postgresql-common
+      - python3-psycopg2
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  tags: [packages]
+
+- name: Check if PostgreSQL APT repository is configured
+  ansible.builtin.shell:
+    cmd: apt-cache policy | grep -q apt.postgresql.org
+  register: pgdg_repo_check
+  failed_when: false
+  changed_when: false
+  tags: [packages]
+
+- name: Configure PostgreSQL APT repository
+  ansible.builtin.command:
+    cmd: /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+  when: pgdg_repo_check.rc != 0
+  tags: [packages]
+
+- name: Install PostgreSQL
+  ansible.builtin.apt:
+    name: "postgresql-{{ postgresql_version | default('18') }}"
+    state: present
+  tags: [packages]
+
+- name: Configure PostgreSQL to listen on all interfaces (if localhost)
+  ansible.builtin.lineinfile:
+    path: "/etc/postgresql/{{ ansible_local.postgresql.version | default('18') }}/main/postgresql.conf"
+    regexp: '^#?listen_addresses\s*='
+    line: "listen_addresses = '*'"
+    backup: true
+  when: kea_db_host in ['localhost', '127.0.0.1', ansible_default_ipv4.address]
+  notify: restart postgresql
+  tags: [config]
+
+- name: Add pg_hba.conf entry for kea user network access
+  community.postgresql.postgresql_pg_hba:
+    dest: "/etc/postgresql/{{ ansible_local.postgresql.version | default('18') }}/main/pg_hba.conf"
+    contype: host
+    databases: "{{ kea_db_name }}"
+    users: "{{ kea_db_user }}"
+    source: "{{ kea_db_host }}/32"
+    method: md5
+    create: true
+  when: kea_db_host not in ['localhost', '127.0.0.1']
+  notify: reload postgresql
+  tags: [config]
+
+- name: Add pg_hba.conf entry for kea user local access
+  community.postgresql.postgresql_pg_hba:
+    dest: "/etc/postgresql/{{ ansible_local.postgresql.version | default('18') }}/main/pg_hba.conf"
+    contype: host
+    databases: "{{ kea_db_name }}"
+    users: "{{ kea_db_user }}"
+    source: "127.0.0.1/32"
+    method: md5
+    create: true
+  when: kea_db_host in ['localhost', '127.0.0.1']
+  notify: reload postgresql
+  tags: [config]
+
+- name: Flush handlers to apply PostgreSQL configuration
+  ansible.builtin.meta: flush_handlers
+  tags: [config]
+
+- name: Create PostgreSQL database for Kea
+  community.postgresql.postgresql_db:
+    name: "{{ kea_db_name }}"
+    state: present
+  become: true
+  become_user: postgres
+  when: kea_db_host in ['localhost', '127.0.0.1', ansible_default_ipv4.address]
+  tags: [database]
+
+- name: Create PostgreSQL user for Kea
+  community.postgresql.postgresql_user:
+    name: "{{ kea_db_user }}"
+    password: "{{ kea_db_password }}"
+    state: present
+  become: true
+  become_user: postgres
+  no_log: true
+  when: kea_db_host in ['localhost', '127.0.0.1', ansible_default_ipv4.address]
+  tags: [database]
+
+- name: Grant all privileges on database to Kea user
+  community.postgresql.postgresql_privs:
+    database: "{{ kea_db_name }}"
+    state: present
+    privs: ALL
+    type: database
+    role: "{{ kea_db_user }}"
+  become: true
+  become_user: postgres
+  when: kea_db_host in ['localhost', '127.0.0.1', ansible_default_ipv4.address]
+  tags: [database]
+
+- name: Grant schema privileges to Kea user
+  community.postgresql.postgresql_query:
+    db: "{{ kea_db_name }}"
+    query: |
+      GRANT ALL ON SCHEMA public TO {{ kea_db_user }};
+      ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO {{ kea_db_user }};
+      ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO {{ kea_db_user }};
+  become: true
+  become_user: postgres
+  when: kea_db_host in ['localhost', '127.0.0.1', ansible_default_ipv4.address]
+  changed_when: false
+  tags: [database]
+
+- name: Test database connectivity
+  community.postgresql.postgresql_ping:
+    login_host: "{{ kea_db_host }}"
+    login_port: "{{ kea_db_port }}"
+    login_user: "{{ kea_db_user }}"
+    login_password: "{{ kea_db_password }}"
+    db: "{{ kea_db_name }}"
+  register: db_ping_result
+  failed_when: not db_ping_result.is_available
+  when: kea_db_validate_connection
+  tags: [validation]
+
+- name: Display database connectivity status
+  ansible.builtin.debug:
+    msg: "Successfully connected to PostgreSQL database at {{ kea_db_host }}:{{ kea_db_port }}"
+  when:
+    - kea_db_validate_connection
+    - db_ping_result.is_available
+  tags: [validation]
+
+- name: Check if Kea schema exists
+  community.postgresql.postgresql_query:
+    login_host: "{{ kea_db_host }}"
+    login_port: "{{ kea_db_port }}"
+    login_user: "{{ kea_db_user }}"
+    login_password: "{{ kea_db_password }}"
+    db: "{{ kea_db_name }}"
+    query: "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'hosts'"
+  register: schema_check
+  changed_when: false
+  tags: [schema]
+
+- name: Set schema exists fact
+  ansible.builtin.set_fact:
+    kea_schema_exists: "{{ (schema_check.query_result[0].count | int) > 0 }}"
+  tags: [schema]
+
+- name: Display schema status
+  ansible.builtin.debug:
+    msg: "Kea schema {{ 'already exists' if kea_schema_exists else 'does not exist' }} in database {{ kea_db_name }}"
+  tags: [schema]
+
+- name: Initialize Kea database schema
+  ansible.builtin.command:
+    cmd: "kea-admin db-init pgsql -u {{ kea_db_user }} -p {{ kea_db_password }} -n {{ kea_db_name }} -h {{ kea_db_host }}"
+  when:
+    - kea_db_init_schema
+    - not kea_schema_exists
+  register: schema_init
+  changed_when: "'successfully' in schema_init.stdout"
+  no_log: true
+  tags: [schema]
+
+- name: Display schema initialization result
+  ansible.builtin.debug:
+    msg: "Kea database schema initialized successfully in {{ kea_db_name }}"
+  when:
+    - kea_db_init_schema
+    - not kea_schema_exists
+  tags: [schema]
+
+- name: Check if unique constraint exists
+  community.postgresql.postgresql_query:
+    login_host: "{{ kea_db_host }}"
+    login_port: "{{ kea_db_port }}"
+    login_user: "{{ kea_db_user }}"
+    login_password: "{{ kea_db_password }}"
+    db: "{{ kea_db_name }}"
+    query: "SELECT COUNT(*) FROM pg_constraint WHERE conname = 'hosts_dhcp_identifier_subnet_unique'"
+  register: constraint_check
+  when: kea_schema_exists or (kea_db_init_schema and not kea_schema_exists)
+  tags: [schema, optimization]
+
+- name: Add unique constraint to hosts table for UPSERT optimization
+  community.postgresql.postgresql_query:
+    login_host: "{{ kea_db_host }}"
+    login_port: "{{ kea_db_port }}"
+    login_user: "{{ kea_db_user }}"
+    login_password: "{{ kea_db_password }}"
+    db: "{{ kea_db_name }}"
+    query: |
+      ALTER TABLE hosts ADD CONSTRAINT hosts_dhcp_identifier_subnet_unique
+        UNIQUE (dhcp_identifier, dhcp_identifier_type, dhcp4_subnet_id);
+  when:
+    - kea_schema_exists or (kea_db_init_schema and not kea_schema_exists)
+    - constraint_check.query_result[0].count | int == 0
+  tags: [schema, optimization]
+
+- name: Check if NOTIFY/LISTEN trigger exists
+  community.postgresql.postgresql_query:
+    login_host: "{{ kea_db_host }}"
+    login_port: "{{ kea_db_port }}"
+    login_user: "{{ kea_db_user }}"
+    login_password: "{{ kea_db_password }}"
+    db: "{{ kea_db_name }}"
+    query: "SELECT COUNT(*) FROM pg_trigger WHERE tgname = 'kea_lease_notify_trigger'"
+  register: trigger_check
+  when:
+    - kea_db_enable_notify
+    - kea_schema_exists or (kea_db_init_schema and not kea_schema_exists)
+  tags: [schema, optimization, notify]
+
+- name: Install NOTIFY/LISTEN trigger for event-driven lease processing
+  community.postgresql.postgresql_query:
+    login_host: "{{ kea_db_host }}"
+    login_port: "{{ kea_db_port }}"
+    login_user: "{{ kea_db_user }}"
+    login_password: "{{ kea_db_password }}"
+    db: "{{ kea_db_name }}"
+    query: "{{ lookup('file', 'kea_notify_trigger.sql') }}"
+  when:
+    - kea_db_enable_notify
+    - kea_schema_exists or (kea_db_init_schema and not kea_schema_exists)
+    - trigger_check.query_result[0].count | int == 0
+  tags: [schema, optimization, notify]
+
+- name: Display NOTIFY/LISTEN status
+  ansible.builtin.debug:
+    msg: "Event-driven NOTIFY/LISTEN trigger {{ 'enabled' if kea_db_enable_notify else 'disabled' }}"
+  tags: [schema, optimization, notify]
+
+- name: Create database connection info file
+  ansible.builtin.template:
+    src: db_connection_info.j2
+    dest: "{{ kea_config_dir }}/.db_connection_info"
+    owner: "{{ kea_service_user }}"
+    group: "{{ kea_service_group }}"
+    mode: '0600'
+  tags: [config]
+
+- name: Display database backend status
+  ansible.builtin.debug:
+    msg:
+      - "Database backend enabled: PostgreSQL"
+      - "Database host: {{ kea_db_host }}:{{ kea_db_port }}"
+      - "Database name: {{ kea_db_name }}"
+      - "Schema status: {{ 'Initialized' if not kea_schema_exists | default(false) else 'Already exists' }}"

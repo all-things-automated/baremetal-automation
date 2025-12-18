@@ -1,0 +1,87 @@
+{
+    "Dhcp4": {
+        "interfaces-config": {
+            "interfaces": ["{{ kea_interface }}"]
+        },
+        "control-socket": {
+            "socket-type": "unix",
+            "socket-name": "{{ kea_control_socket }}"
+        },
+        "lease-database": {
+            "type": "memfile",
+            "lfc-interval": {{ kea_lfc_interval }}
+        },
+{% if kea_enable_database %}
+        "hosts-database": {
+            "type": "postgresql",
+            "host": "{{ kea_db_host }}",
+            "port": {{ kea_db_port }},
+            "name": "{{ kea_db_name }}",
+            "user": "{{ kea_db_user }}",
+            "password": "{{ kea_db_password }}"
+        },
+{% endif %}
+{% if kea_enable_hook or (kea_custom_hooks is defined and kea_custom_hooks | length > 0) %}
+        "hooks-libraries": [
+{% if kea_enable_hook %}
+          {
+            "library": "{{ kea_hook_library_path }}",
+            "parameters": {
+              "name": "{{ kea_hook_script_path }}",
+              "sync": {{ kea_hook_sync | lower }}
+            }
+          }{{ ',' if (kea_custom_hooks is defined and kea_custom_hooks | length > 0) else '' }}
+{% endif %}
+{% if kea_custom_hooks is defined %}
+{% for hook in kea_custom_hooks %}
+          {
+            "library": "{{ hook.library }}",
+            "parameters": {{ hook.parameters | to_json }}
+          }{{ ',' if not loop.last else '' }}
+{% endfor %}
+{% endif %}
+        ],
+{% endif %}
+        "valid-lifetime": {{ kea_lease_lifetime }},
+        "max-valid-lifetime": {{ kea_max_lease_lifetime }},
+        "subnet4": [{
+            "id": {{ kea_subnet_id }},
+            "subnet": "{{ kea_subnet_cidr }}",
+            "pools": [{
+                "pool": "{{ kea_pool_start }} - {{ kea_pool_end }}"
+            }],
+            "option-data": [
+                {
+                    "name": "routers",
+                    "data": "{{ kea_gateway }}"
+                },
+                {
+                    "name": "domain-name-servers",
+                    "data": "{{ kea_dns_servers }}"
+                },
+                {
+                    "name": "domain-name",
+                    "data": "{{ kea_domain_name }}"
+                }{% if kea_additional_options is defined and kea_additional_options | length > 0 %},{% endif %}
+{% if kea_additional_options is defined %}
+{% for option in kea_additional_options %}
+                {
+                    "name": "{{ option.name }}",
+                    "data": "{{ option.data }}"
+                }{{ ',' if not loop.last else '' }}
+{% endfor %}
+{% endif %}
+            ]
+        }],
+        "loggers": [{
+            "name": "kea-dhcp4",
+            "output_options": [{
+                "output": "{{ kea_log_dir }}/kea-dhcp4.log",
+                "maxver": 8,
+                "maxsize": 10485760,
+                "flush": true
+            }],
+            "severity": "INFO"
+        }]
+    }
+}

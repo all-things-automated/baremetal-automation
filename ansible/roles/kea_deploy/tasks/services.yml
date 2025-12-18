@@ -1,0 +1,54 @@
+---
+# Service management tasks
+
+- name: Create systemd service for Kea lease monitor
+  ansible.builtin.template:
+    src: kea-lease-monitor.service.j2
+    dest: /etc/systemd/system/{{ kea_monitor_service }}.service
+    owner: root
+    group: root
+    mode: "0644"
+  when: kea_enable_lease_monitor
+  register: monitor_service_created
+  notify: Restart kea-lease-monitor
+
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: kea_enable_lease_monitor and monitor_service_created is changed
+
+- name: Enable and start Kea DHCP server
+  ansible.builtin.systemd:
+    name: "{{ kea_dhcp_service }}"
+    enabled: true
+    state: started
+
+- name: Enable and start Kea lease monitor
+  ansible.builtin.systemd:
+    name: "{{ kea_monitor_service }}"
+    enabled: true
+    state: started
+  when: kea_enable_lease_monitor
+
+- name: Create deployment facts directory
+  ansible.builtin.file:
+    path: /etc/ansible/facts.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Record deployment facts
+  ansible.builtin.copy:
+    dest: /etc/ansible/facts.d/kea_deploy.fact
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      {
+        "deployed": true,
+        "version": "1.0.0",
+        "subnet": "{{ kea_subnet_cidr }}",
+        "monitor_enabled": {{ kea_enable_lease_monitor | lower }},
+        "deployed_at": "{{ ansible_date_time.iso8601 }}"
+      }

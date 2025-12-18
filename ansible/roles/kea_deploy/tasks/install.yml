@@ -1,0 +1,42 @@
+---
+# Package installation tasks
+
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+  changed_when: false
+
+- name: Ensure Kea packages are installed
+  ansible.builtin.apt:
+    name: "{{ item }}{{ '=' + kea_package_version if kea_package_version | length > 0 else '' }}"
+    state: present
+  loop:
+    - kea-dhcp4-server
+    - kea-ctrl-agent
+    - kea-admin
+
+- name: Verify _kea user was created
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ kea_service_user }}"
+  register: kea_user_check
+  retries: 10
+  until: kea_user_check is succeeded
+
+- name: Ensure Kea service is stopped during initial setup
+  ansible.builtin.systemd:
+    name: "{{ kea_dhcp_service }}"
+    state: stopped
+  when: ansible_local.kea_deploy is not defined
+  changed_when: false
+
+- name: Install Python packages for Vault and DNS integration
+  ansible.builtin.apt:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - python3-hvac           # HashiCorp Vault client
+    - python3-psycopg2       # PostgreSQL adapter
+    - python3-dnspython      # DNS toolkit
+  when: kea_use_vault or kea_enable_dns

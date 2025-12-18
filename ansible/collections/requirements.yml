@@ -1,0 +1,16 @@
+---
+# Ansible Galaxy Collections Required for Bare-Metal Automation
+#
+# Install with:
+#   ansible-galaxy collection install -r collections/requirements.yml
+#
+# Or when using Execution Environments, reference this file in execution-environment.yml
+
+collections:
+  - name: community.general
+    version: ">=8.0.0"
+    source: https://galaxy.ansible.com
+
+  - name: netbox.netbox
+    version: ">=3.18.0"
+    source: https://galaxy.ansible.com

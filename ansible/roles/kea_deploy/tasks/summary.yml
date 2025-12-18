@@ -1,0 +1,185 @@
+---
+# Deployment summary with database and service status
+
+- name: Query PostgreSQL service status
+  ansible.builtin.systemd:
+    name: postgresql
+  register: postgresql_status
+  when: kea_enable_database
+  ignore_errors: true
+  tags: [always, summary]
+
+- name: Query Kea DHCP service status
+  ansible.builtin.systemd:
+    name: "{{ kea_dhcp_service }}"
+  register: kea_dhcp_status
+  ignore_errors: true
+  tags: [always, summary]
+
+- name: Query Kea lease monitor service status
+  ansible.builtin.systemd:
+    name: "{{ kea_monitor_service }}"
+  register: kea_monitor_status
+  when: kea_enable_lease_monitor
+  ignore_errors: true
+  tags: [always, summary]
+
+- name: Test database connectivity
+  ansible.builtin.command:
+    cmd: >
+      psql -h {{ kea_db_host }}
+      -p {{ kea_db_port }}
+      -U {{ kea_db_user }}
+      -d {{ kea_db_name }}
+      -c "SELECT COUNT(*) FROM lease4;"
+  environment:
+    PGPASSWORD: "{{ kea_db_password }}"
+  register: db_query_result
+  when: kea_enable_database
+  changed_when: false
+  ignore_errors: true
+  tags: [always, summary]
+
+- name: Count cabinet discovery files
+  ansible.builtin.find:
+    paths: "{{ kea_discovery_output_dir }}"
+    patterns: "*-discovery.yml"
+  register: discovery_files
+  when: kea_enable_lease_monitor
+  tags: [always, summary]
+
+- name: Query installed Kea version
+  ansible.builtin.command:
+    cmd: dpkg-query -W -f='${Version}' kea-dhcp4-server
+  register: kea_version_query
+  changed_when: false
+  ignore_errors: true
+  tags: [always, summary]
+
+- name: Extract Kea version
+  ansible.builtin.set_fact:
+    kea_version: "{{ kea_version_query.stdout if kea_version_query.rc == 0 else 'not installed' }}"
+  tags: [always, summary]
+
+- name: Build summary message parts
+  ansible.builtin.set_fact:
+    summary_base: |
+      ============================================================
+      KEA DHCP DEPLOYMENT SUMMARY
+      ============================================================
+      
+      SERVICES STATUS:
+      ----------------
+      PostgreSQL:           {{ '[ACTIVE]' if (postgresql_status.status.ActiveState | default('unknown')) == 'active' else '[INACTIVE]' }}
+      Kea DHCP Server:      {{ '[ACTIVE]' if (kea_dhcp_status.status.ActiveState | default('unknown')) == 'active' else '[INACTIVE]' }}
+      Kea Lease Monitor:    {{ '[ACTIVE]' if (kea_monitor_status.status.ActiveState | default('unknown')) == 'active' else ('[DISABLED]' if not kea_enable_lease_monitor else '[INACTIVE]') }}
+      
+      DATABASE STATUS:
+      ----------------
+      Host:                 {{ kea_db_host | default('N/A') }}:{{ kea_db_port | default('N/A') }}
+      Database:             {{ kea_db_name | default('N/A') }}
+      Connection:           {{ '[OK]' if db_query_result.rc | default(1) == 0 else '[FAILED]' }}
+      
+      CONFIGURATION:
+      ----------------
+      Subnet:               {{ kea_subnet_cidr | default('N/A') }}
+      Gateway:              {{ kea_gateway | default('N/A') }}
+      DNS Servers:          {{ kea_dns_servers | default([]) }}
+      Lease Time:           {{ kea_lease_time | default(3600) }}s ({{ (kea_lease_time | default(3600) / 3600) | int }}h)
+      Discovery Output:     {{ kea_discovery_output_dir | default('N/A') }}
+      Cabinet Files:        {{ discovery_files.matched | default(0) if kea_enable_lease_monitor else 'N/A' }}
+      
+      FEATURES:
+      ----------------
+      Database Backend:     {{ '[ENABLED]' if kea_enable_database else '[DISABLED]' }}
+      Lease Monitor:        {{ '[ENABLED]' if kea_enable_lease_monitor else '[DISABLED]' }}
+      DNS Integration:      {{ '[ENABLED]' if kea_enable_dns | default(false) else '[DISABLED]' }}
+      Vault Integration:    {{ '[ENABLED]' if kea_use_vault | default(false) else '[DISABLED]' }}
+      Event-driven Mode:    {{ '[ENABLED]' if kea_use_database_events | default(false) else '[DISABLED]' }}
+      
+      DEPLOYMENT INFO:
+      ----------------
+      Deployed At:          {{ ansible_date_time.iso8601 }}
+      Target Host:          {{ inventory_hostname }}
+      Kea Version:          {{ kea_version | default('unknown') }}
+      
+      DIRECTORIES:
+      ----------------
+      Config:               {{ kea_config_dir }}
+      Application:          {{ kea_app_base_dir }}
+      Python Scripts:       {{ kea_python_scripts_dir }}
+      Discovery Output:     {{ kea_discovery_output_dir }}
+      Logs:                 {{ kea_log_dir }}
+      Lease File:           {{ kea_lease_file }}
+      
+      MONITORING COMMANDS:
+      ----------------
+      View DHCP service logs:
+        journalctl -u {{ kea_dhcp_service }} -f
+      
+      View lease monitor logs:
+        journalctl -u {{ kea_monitor_service }} -f
+      
+      Check service status:
+        systemctl status {{ kea_dhcp_service }} {{ kea_monitor_service }}
+      
+      View recent events:
+        journalctl -u {{ kea_monitor_service }} --since "10 minutes ago"
+      
+      DATABASE COMMANDS:
+      ----------------
+      List DHCP reservations:
+        psql -h {{ kea_db_host }} -U {{ kea_db_user }} -d {{ kea_db_name }} -c "SELECT hostname, inet '0.0.0.0' + ipv4_address AS ip FROM hosts ORDER BY hostname;"
+      
+      Check lease count:
+        psql -h {{ kea_db_host }} -U {{ kea_db_user }} -d {{ kea_db_name }} -c "SELECT COUNT(*) FROM lease4;"
+    summary_dns: |
+      
+      DNS OPERATIONS:
+      ----------------
+      View DNS sync on startup:
+        journalctl -u {{ kea_monitor_service }} --since "1 hour ago" | grep "DNS consistency"
+      
+      Test DNS resolution:
+        dig @172.30.16.141 <hostname>.{{ kea_dns_zone }}
+    summary_vault: |
+      
+      VAULT INTEGRATION:
+      ----------------
+      Vault Server:         {{ kea_vault_addr }}
+      DB Credentials Path:  secrets/teams/core-infrastructure/server/kea_db
+      DNS Credentials Path: secrets/teams/core-infrastructure/server/baremetal_dns
+      
+      Test Vault access:
+        vault token lookup
+        vault read secrets/teams/core-infrastructure/server/kea_db
+    summary_footer: |
+      
+      TROUBLESHOOTING:
+      ----------------
+      Check for errors:
+        journalctl -u {{ kea_monitor_service }} -p err -n 50
+      
+      Restart services:
+        systemctl restart {{ kea_dhcp_service }}
+        systemctl restart {{ kea_monitor_service }}
+      
+      View configuration:
+        cat {{ kea_config_dir }}/kea-dhcp4.conf
+      
+      Check discovery files:
+        ls -la {{ kea_discovery_output_dir }}/
+      
+      DOCUMENTATION:
+      ----------------
+      Main docs:            {{ kea_app_base_dir }}/docs/
+      Integration guide:    {{ kea_app_base_dir }}/docs/KEA_DNS_INTEGRATION.md
+      Deployment checklist: {{ kea_app_base_dir }}/docs/KEA_DNS_DEPLOYMENT_CHECKLIST.md
+      
+      ============================================================
+  tags: [always, summary]
+
+- name: Display deployment summary
+  ansible.builtin.debug:
+    msg: "{{ summary_base }}{{ summary_dns if kea_enable_dns | default(false) else '' }}{{ summary_vault if kea_use_vault | default(false) else '' }}{{ summary_footer }}"
+  tags: [always, summary]

@@ -1,0 +1,51 @@
+---
+# Setup NetBox prerequisites and discover artifacts
+
+- name: Ensure BMC custom link exists in NetBox
+  ansible.builtin.uri:
+    url: "{{ nb_url }}/api/extras/custom-links/"
+    method: POST
+    headers:
+      Authorization: "Token {{ nb_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      content_types:
+        - "dcim.device"
+      name: "{{ nb_bmc_custom_link_name }}"
+      enabled: true
+      link_text: "Open {{ '{{' }} object.name {{ '}}' }} BMC"
+      link_url: "https://{{ '{{' }} object.primary_ip.address.ip {{ '}}' }}"
+      new_window: "{{ nb_bmc_custom_link_new_window }}"
+      weight: "{{ nb_bmc_custom_link_weight }}"
+    status_code:
+      - 200
+      - 201
+      - 400  # Already exists (idempotent)
+    validate_certs: "{{ nb_validate_certs }}"
+  register: custom_link_result
+  failed_when:
+    - custom_link_result.status not in [200, 201, 400]
+    - "'already exists' not in (custom_link_result.json.name[0] | default(''))"
+  when: nb_create_bmc_custom_link
+
+- name: Discover artifact files in directory
+  ansible.builtin.find:
+    paths: "{{ discovery_artifact_dir }}"
+    patterns: "*-discovery.yml"
+    recurse: false
+  register: found_artifacts
+  when: artifact_paths | length == 0
+
+- name: Build artifacts processing list
+  ansible.builtin.set_fact:
+    artifacts_to_process: >-
+      {{
+        artifact_paths if artifact_paths | length > 0
+        else found_artifacts.files | map(attribute='path') | list
+      }}
+
+- name: Validate artifacts were discovered
+  ansible.builtin.fail:
+    msg: "No discovery artifacts found in {{ discovery_artifact_dir }}"
+  when: artifacts_to_process | length == 0

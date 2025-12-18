@@ -1,0 +1,31 @@
+---
+# Register discovered devices in NetBox
+
+- name: Initialize device tracking variables
+  ansible.builtin.set_fact:
+    registered_racks: {}
+    registered_devices: []
+  changed_when: false
+
+- name: Process each discovery artifact
+  ansible.builtin.include_tasks: process_artifact.yml
+  loop: "{{ artifacts_to_process }}"
+  loop_control:
+    loop_var: artifact_path
+    index_var: artifact_idx
+    label: "[{{ artifact_idx + 1 }}/{{ artifacts_to_process | length }}] {{ artifact_path | basename }}"
+
+- name: Display registration summary
+  ansible.builtin.debug:
+    msg: |
+      ================================================
+      NetBox Registration Summary
+      ================================================
+      {% for rack_name in (registered_racks.keys() | sort) %}
+      Rack: {{ rack_name }}
+      {% for device in (registered_racks[rack_name] | sort(reverse=true)) %}
+        - {{ device }}
+      {% endfor %}
+      {% endfor %}
+      ================================================
+      Total devices: {{ registered_devices | length }}
