@@ -81,7 +81,7 @@ Required environment variables (set in Spacelift stack):
 
 ```bash
 # NetBox Configuration
-NETBOX_URL=https://netbox.global.plex/
+NETBOX_URL=https://netbox.example.com
 NETBOX_TOKEN=<retrieved-from-vault>
 
 # BMC Credentials
